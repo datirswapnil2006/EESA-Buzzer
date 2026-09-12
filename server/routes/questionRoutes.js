@@ -1,7 +1,88 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const Question = require('../models/Question');
 const { protect } = require('../middleware/auth');
+const { extractTextFromPdf, parseQuestionsFromText } = require('../utils/pdfQuestionParser');
+
+// Configure multer in-memory storage for PDF uploads (15MB limit)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF documents are allowed'));
+    }
+  },
+});
+
+// Extract questions from uploaded PDF
+router.post('/extract-pdf', protect, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ success: false, message: 'Please upload a valid PDF file' });
+    }
+
+    const rawText = await extractTextFromPdf(req.file.buffer);
+    if (!rawText || rawText.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Could not extract text from this PDF. It may be scanned or empty.',
+      });
+    }
+
+    const defaultOptions = {
+      category: req.body.category || 'General',
+      difficulty: req.body.difficulty || 'medium',
+      points: Number(req.body.points) || 10,
+      negativePoints: Number(req.body.negativePoints) || 5,
+      timeLimit: Number(req.body.timeLimit) || 15,
+    };
+
+    const questions = parseQuestionsFromText(rawText, defaultOptions);
+
+    res.json({
+      success: true,
+      count: questions.length,
+      filename: req.file.originalname,
+      questions,
+      rawTextSnippet: rawText.slice(0, 500),
+    });
+  } catch (error) {
+    console.error('PDF extraction error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to process PDF file' });
+  }
+});
+
+// Extract questions from pasted plain text
+router.post('/extract-text', protect, async (req, res) => {
+  try {
+    const { text, category, difficulty, points, negativePoints, timeLimit } = req.body;
+    if (!text || typeof text !== 'string' || !text.trim()) {
+      return res.status(400).json({ success: false, message: 'Please provide valid text' });
+    }
+
+    const defaultOptions = {
+      category: category || 'General',
+      difficulty: difficulty || 'medium',
+      points: Number(points) || 10,
+      negativePoints: Number(negativePoints) || 5,
+      timeLimit: Number(timeLimit) || 15,
+    };
+
+    const questions = parseQuestionsFromText(text, defaultOptions);
+
+    res.json({
+      success: true,
+      count: questions.length,
+      questions,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 
 // Get questions by event
 router.get('/event/:eventId', async (req, res) => {

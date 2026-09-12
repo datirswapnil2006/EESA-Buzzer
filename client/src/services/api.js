@@ -4,7 +4,7 @@ const API_BASE = `${API_URL}/api`;
 export const apiRequest = async (endpoint, options = {}) => {
   const token = localStorage.getItem('eesa_token');
   const headers = {
-    'Content-Type': 'application/json',
+    ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...options.headers,
   };

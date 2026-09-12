@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { apiRequest } from '../../services/api';
 import Header from '../../components/common/Header';
+import { useToast } from '../../context/ToastContext';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   ArrowRight,
@@ -17,15 +18,20 @@ import {
   Eye,
   QrCode,
   Copy,
+  FileText,
+  Sparkles,
 } from 'lucide-react';
+import PdfQuestionImportModal from '../../components/admin/PdfQuestionImportModal';
 
 export default function EventWizardPage() {
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [createdEvent, setCreatedEvent] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
 
   // Form State
   const [eventInfo, setEventInfo] = useState({
@@ -115,7 +121,9 @@ export default function EventWizardPage() {
 
   const handleRemoveRound = (idx) => {
     if (rounds.length <= 1) return;
+    const removedTitle = rounds[idx]?.title || `Round ${idx + 1}`;
     setRounds(rounds.filter((_, i) => i !== idx));
+    showToast(`"${removedTitle}" deleted`, 'info');
   };
 
   const handleAddQuestion = () => {
@@ -143,6 +151,16 @@ export default function EventWizardPage() {
 
   const handleRemoveQuestion = (idx) => {
     setQuestions(questions.filter((_, i) => i !== idx));
+    showToast(`Question Q${idx + 1} deleted`, 'info');
+  };
+
+  const handleImportPdfQuestions = (imported) => {
+    setQuestions((prev) => {
+      // Remove placeholder questions that have empty questionText
+      const existing = prev.filter((q) => q.questionText && q.questionText.trim().length > 0);
+      return [...existing, ...imported];
+    });
+    showToast(`Imported ${imported.length} questions from PDF`, 'success');
   };
 
   const handleCreateEvent = async () => {
@@ -400,17 +418,26 @@ export default function EventWizardPage() {
         {/* STEP 3: QUESTIONS */}
         {currentStep === 3 && (
           <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6 animate-fade-in">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
                 <HelpCircle className="w-5 h-5 text-blue-600" /> Step 3: Questions Configuration
               </h2>
-              <button
-                type="button"
-                onClick={handleAddQuestion}
-                className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-blue-700 text-xs font-bold flex items-center gap-1 border border-slate-200"
-              >
-                <Plus className="w-3.5 h-3.5" /> Add Question
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsPdfModalOpen(true)}
+                  className="px-3.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold flex items-center gap-1.5 border border-blue-200 shadow-xs transition"
+                >
+                  <FileText className="w-3.5 h-3.5" /> Import from PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddQuestion}
+                  className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1 border border-slate-200 transition"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add Question
+                </button>
+              </div>
             </div>
 
             <div className="space-y-4">
@@ -788,6 +815,15 @@ export default function EventWizardPage() {
           </div>
         )}
       </main>
+
+      {/* PDF Question Import Modal */}
+      <PdfQuestionImportModal
+        isOpen={isPdfModalOpen}
+        onClose={() => setIsPdfModalOpen(false)}
+        onImport={handleImportPdfQuestions}
+        rounds={rounds}
+        currentRoundIndex={0}
+      />
     </div>
   );
 }

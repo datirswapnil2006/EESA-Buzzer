@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import EESALogo from '../../components/common/EESALogo';
-import { Lock, Mail, ArrowRight, ShieldCheck, Key } from 'lucide-react';
+import { Lock, Mail, ArrowRight, ShieldCheck } from 'lucide-react';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -26,11 +26,6 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const fillDemoCredentials = () => {
-    setEmail('admin@eesa.org');
-    setPassword('admin123');
   };
 
   return (
@@ -112,16 +107,6 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Quick Demo Helper */}
-          <div className="mt-6 pt-5 border-t border-eesa-border text-center">
-            <button
-              type="button"
-              onClick={fillDemoCredentials}
-              className="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 font-semibold bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-lg transition"
-            >
-              <Key className="w-3.5 h-3.5" /> Auto-fill Demo Admin Credentials
-            </button>
-          </div>
         </div>
 
         {/* Back to Public Site */}

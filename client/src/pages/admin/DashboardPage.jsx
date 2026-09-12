@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { apiRequest } from '../../services/api';
 import Header from '../../components/common/Header';
 import ConfirmModal from '../../components/common/ConfirmModal';
+import PdfQuestionImportModal from '../../components/admin/PdfQuestionImportModal';
+import { useToast } from '../../context/ToastContext';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   LayoutDashboard,
@@ -28,6 +30,7 @@ import {
 } from 'lucide-react';
 
 export default function DashboardPage() {
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard', 'events', 'questions', 'leaderboard'
   const [events, setEvents] = useState([]);
   const [questions, setQuestions] = useState([]);
@@ -35,6 +38,7 @@ export default function DashboardPage() {
   const [selectedEventForQR, setSelectedEventForQR] = useState(null);
   const [eventToDelete, setEventToDelete] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
 
   // Question Bank Search & Filter States
   const [qSearch, setQSearch] = useState('');
@@ -67,12 +71,24 @@ export default function DashboardPage() {
 
   const handleDeleteEvent = async () => {
     if (!eventToDelete) return;
+    const eventTitle = eventToDelete.title || eventToDelete.eventCode;
     try {
       await apiRequest(`/events/${eventToDelete._id}`, { method: 'DELETE' });
       setEvents((prev) => prev.filter((e) => e._id !== eventToDelete._id));
       setEventToDelete(null);
+      showToast(`Event "${eventTitle}" deleted successfully`, 'success');
     } catch (err) {
-      alert(err.message || 'Failed to delete event');
+      showToast(err.message || 'Failed to delete event', 'error');
+    }
+  };
+
+  const handleDeleteQuestion = async (qId) => {
+    try {
+      await apiRequest(`/questions/${qId}`, { method: 'DELETE' });
+      setQuestions((prev) => prev.filter((q) => q._id !== qId));
+      showToast('Question deleted from Question Bank', 'success');
+    } catch (err) {
+      showToast(err.message || 'Failed to delete question', 'error');
     }
   };
 
@@ -80,7 +96,26 @@ export default function DashboardPage() {
     const url = `${window.location.origin}/join/${code}`;
     navigator.clipboard.writeText(url);
     setCopied(true);
+    showToast('Event link copied to clipboard!', 'info');
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleImportToQuestionBank = async (importedQuestions) => {
+    try {
+      const res = await apiRequest('/questions/bulk', {
+        method: 'POST',
+        body: JSON.stringify({ questions: importedQuestions }),
+      });
+      if (res.success) {
+        const refreshed = await apiRequest('/questions/bank');
+        if (refreshed.success) {
+          setQuestions(refreshed.data);
+        }
+        showToast(`Imported ${importedQuestions.length} questions to Question Bank`, 'success');
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to save questions to question bank', 'error');
+    }
   };
 
   // Filtered Questions
@@ -451,6 +486,13 @@ export default function DashboardPage() {
                   <h1 className="text-2xl font-bold text-slate-900">Question Bank</h1>
                   <p className="text-sm text-slate-500 mt-0.5">Central repository of quiz questions, categories, and keys</p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setIsPdfModalOpen(true)}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-2 shadow-sm shadow-blue-200 transition self-start sm:self-auto"
+                >
+                  <FileText className="w-4 h-4" /> Import from PDF
+                </button>
               </div>
 
               {/* Search & Filter Bar */}
@@ -519,9 +561,21 @@ export default function DashboardPage() {
                           </span>
                           <span className="text-xs text-slate-500">{q.category}</span>
                         </div>
-                        <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                          +{q.points} PTS
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                            +{q.points} PTS
+                          </span>
+                          {q._id && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteQuestion(q._id)}
+                              className="text-slate-400 hover:text-red-600 p-1 rounded hover:bg-slate-100 transition"
+                              title="Delete Question"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       <h4 className="font-semibold text-slate-900 text-sm">{q.questionText}</h4>
@@ -635,6 +689,13 @@ export default function DashboardPage() {
         confirmText="Yes, Delete Event"
         onConfirm={handleDeleteEvent}
         onCancel={() => setEventToDelete(null)}
+      />
+
+      {/* PDF Question Import Modal */}
+      <PdfQuestionImportModal
+        isOpen={isPdfModalOpen}
+        onClose={() => setIsPdfModalOpen(false)}
+        onImport={handleImportToQuestionBank}
       />
     </div>
   );

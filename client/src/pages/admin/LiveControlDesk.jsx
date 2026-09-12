@@ -5,6 +5,7 @@ import { apiRequest } from '../../services/api';
 import Header from '../../components/common/Header';
 import Timer from '../../components/common/Timer';
 import ConfirmModal from '../../components/common/ConfirmModal';
+import { useToast } from '../../context/ToastContext';
 import {
   Play,
   Pause,
@@ -26,6 +27,7 @@ import {
 export default function LiveControlDesk() {
   const { eventId } = useParams();
   const socket = getSocket();
+  const { showToast } = useToast();
 
   const [eventData, setEventData] = useState(null);
   const [gameState, setGameState] = useState({
@@ -135,6 +137,7 @@ export default function LiveControlDesk() {
       message: 'Are you sure you want to end this event? All rounds will conclude and the final podium standings will be locked.',
       onConfirm: () => {
         socket.emit('end_game');
+        showToast('Event competition concluded', 'info');
         setConfirmModal({ isOpen: false });
       },
     });
@@ -148,8 +151,9 @@ export default function LiveControlDesk() {
       });
       // Refresh state
       socket.emit('request_state', { eventId });
+      showToast(`Score adjusted (${delta > 0 ? `+${delta}` : delta} pts)`, 'success');
     } catch (err) {
-      alert(err.message || 'Failed to adjust score');
+      showToast(err.message || 'Failed to adjust score', 'error');
     }
   };
 
@@ -162,8 +166,9 @@ export default function LiveControlDesk() {
         try {
           await apiRequest(`/participants/${p._id}`, { method: 'DELETE' });
           socket.emit('request_state', { eventId });
+          showToast(`Participant "${p.teamName || p.name}" removed`, 'info');
         } catch (err) {
-          alert(err.message);
+          showToast(err.message || 'Failed to remove participant', 'error');
         }
         setConfirmModal({ isOpen: false });
       },
