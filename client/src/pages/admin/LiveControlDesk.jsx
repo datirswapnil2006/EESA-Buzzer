@@ -48,6 +48,7 @@ export default function LiveControlDesk() {
   });
 
   const [loading, setLoading] = useState(true);
+  const [mobileTab, setMobileTab] = useState('controls'); // 'controls' | 'standings'
 
   useEffect(() => {
     const fetchEvent = async () => {
@@ -246,9 +247,36 @@ export default function LiveControlDesk() {
       </div>
 
       {/* Main Host Split View */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* LEFT & CENTER: ACTIVE QUESTION & REAL-TIME CONTROLS (2 COLUMNS) */}
-        <div className="lg:col-span-2 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 pb-24 lg:pb-6">
+        {/* Mobile View Switcher Tabs (lg:hidden) */}
+        {!isWaiting && (
+          <div className="lg:hidden flex items-center bg-slate-100 p-1 rounded-xl mb-4 border border-slate-200">
+            <button
+              onClick={() => setMobileTab('controls')}
+              className={`flex-1 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                mobileTab === 'controls'
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5" /> Controls & Question
+            </button>
+            <button
+              onClick={() => setMobileTab('standings')}
+              className={`flex-1 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                mobileTab === 'standings'
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" /> Participants ({gameState.leaderboard.length})
+            </button>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* LEFT & CENTER: ACTIVE QUESTION & REAL-TIME CONTROLS (2 COLUMNS) */}
+          <div className={`lg:col-span-2 space-y-6 ${mobileTab === 'controls' ? 'block' : 'hidden lg:block'}`}>
           {/* Waiting Room Launch Card */}
           {isWaiting && (
             <div className="bg-white p-8 rounded-2xl border border-eesa-border shadow-sm text-center space-y-4">
@@ -525,7 +553,9 @@ export default function LiveControlDesk() {
         </div>
 
         {/* RIGHT: LIVE PARTICIPANTS & INSTANT SCORE AUDIT (1 COLUMN) */}
-        <div className="bg-white rounded-2xl p-5 border border-eesa-border shadow-sm flex flex-col h-full space-y-4">
+        <div className={`bg-white rounded-2xl p-4 sm:p-5 border border-eesa-border shadow-sm flex flex-col space-y-4 ${
+          mobileTab === 'standings' ? 'block' : 'hidden lg:flex'
+        }`}>
           <div className="flex items-center justify-between pb-3 border-b border-eesa-border">
             <div className="flex items-center gap-2">
               <Users className="w-4 h-4 text-blue-600" />
@@ -592,7 +622,67 @@ export default function LiveControlDesk() {
             ))}
           </div>
         </div>
-      </main>
+      </div>
+    </main>
+
+    {/* Sticky Bottom Quick-Control Bar for Mobile Hosts */}
+    {!isWaiting && !isCompleted && mobileTab === 'controls' && (
+      <div className="fixed bottom-0 left-0 right-0 p-3 bg-white/95 backdrop-blur-md border-t border-slate-200 z-40 lg:hidden shadow-lg">
+        {firstBuzzer ? (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleMarkCorrect}
+              className="flex-1 py-2.5 px-2 rounded-xl bg-emerald-600 active:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1 shadow-sm"
+            >
+              <CheckCircle2 className="w-4 h-4" /> AWARD (+{gameState.currentQuestion?.points || 10})
+            </button>
+            <button
+              onClick={handleMarkWrong}
+              className="flex-1 py-2.5 px-2 rounded-xl bg-red-600 active:bg-red-700 text-white font-bold text-xs flex items-center justify-center gap-1 shadow-sm"
+            >
+              <XCircle className="w-4 h-4" /> PENALIZE (-{gameState.event?.settings?.negativeMarkingEnabled !== false ? (gameState.currentQuestion?.negativePoints || gameState.event?.settings?.defaultNegativePoints || 5) : 0})
+            </button>
+            <button
+              onClick={handleNextQuestion}
+              className="p-2.5 rounded-xl bg-blue-600 active:bg-blue-700 text-white font-bold text-xs flex items-center justify-center shadow-sm"
+              title="Next Question"
+            >
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        ) : isBuzzerActive ? (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleLockBuzzer}
+              className="flex-1 py-2.5 px-4 rounded-xl bg-slate-800 active:bg-slate-900 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm"
+            >
+              <Lock className="w-4 h-4" /> LOCK BUZZER
+            </button>
+            <button
+              onClick={handleNextQuestion}
+              className="py-2.5 px-4 rounded-xl bg-blue-600 active:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-1 shadow-sm"
+            >
+              NEXT <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleStartBuzzer}
+              className="flex-1 py-2.5 px-4 rounded-xl bg-red-600 active:bg-red-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm animate-pulse"
+            >
+              <Zap className="w-4 h-4 fill-white" /> START BUZZER NOW
+            </button>
+            <button
+              onClick={handleNextQuestion}
+              className="py-2.5 px-4 rounded-xl bg-blue-600 active:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-1 shadow-sm"
+            >
+              NEXT <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+      </div>
+    )}
 
       {/* Action Safety Confirmation Modal */}
       <ConfirmModal

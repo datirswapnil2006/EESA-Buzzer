@@ -43,7 +43,13 @@ export default function Header({ isConnected = true, role = 'student', eventCode
             </Link>
           )}
 
-          {user ? (
+          {role === 'student' ? (
+            eventCode ? (
+              <span className="font-mono font-black text-xs px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200">
+                {eventCode}
+              </span>
+            ) : null
+          ) : user ? (
             <div className="flex items-center gap-2">
               <Link
                 to="/admin/dashboard"

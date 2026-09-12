@@ -58,15 +58,18 @@
   box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.06);
 }
 
-/* Clean Professional Buzzer Button */
+/* Clean Professional Buzzer Button - Optimized for Mobile */
 .buzzer-btn {
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
   transition: transform 0.1s ease, box-shadow 0.15s ease;
 }
 
 .buzzer-btn:active:not(:disabled) {
-  transform: scale(0.96);
+  transform: scale(0.94);
 }
 
 /* Subtle, clean focus ring for buzzer ready state */
