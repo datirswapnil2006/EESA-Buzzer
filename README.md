@@ -46,8 +46,8 @@ Create `server/.env`:
 PORT=5000
 MONGODB_URI=mongodb+srv://<username>:<password>@cluster.mongodb.net/eesa_quiz
 JWT_SECRET=eesa_super_secret_jwt_key_2026
-ADMIN_EMAIL=admin@eesa.org
-ADMIN_PASSWORD=admin123
+ADMIN_EMAIL=your admin email
+ADMIN_PASSWORD= your password admin
 ```
 
 Start the backend:
