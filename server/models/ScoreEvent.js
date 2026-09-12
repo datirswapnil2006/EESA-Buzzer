@@ -43,6 +43,26 @@ const ScoreEventSchema = new mongoose.Schema({
     type: String,
     default: '',
   },
+  selectedAnswer: {
+    type: String,
+    default: '',
+  },
+  selectedOptionText: {
+    type: String,
+    default: '',
+  },
+  correctAnswer: {
+    type: String,
+    default: '',
+  },
+  isCorrect: {
+    type: Boolean,
+    default: null,
+  },
+  responseTimeMs: {
+    type: Number,
+    default: 0,
+  },
   timestamp: {
     type: Date,
     default: Date.now,

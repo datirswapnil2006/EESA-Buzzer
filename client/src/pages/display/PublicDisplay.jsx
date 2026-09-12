@@ -229,6 +229,33 @@ export default function PublicDisplay() {
                 </div>
               </div>
             </div>
+
+            {/* Top 4 & 5 Honor Roll */}
+            {gameState.leaderboard?.length > 3 && (
+              <div className="pt-6 border-t border-eesa-border max-w-2xl mx-auto">
+                <span className="text-xs uppercase font-bold text-eesa-textSecondary tracking-wider block mb-3">
+                  Top Contenders (4th & 5th Place)
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {gameState.leaderboard.slice(3, 5).map((p, idx) => (
+                    <div key={p._id || idx} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="w-8 h-8 rounded-xl bg-slate-200 text-slate-700 font-mono font-black text-xs flex items-center justify-center shrink-0">
+                          #{idx + 4}
+                        </span>
+                        <div className="text-left min-w-0">
+                          <h5 className="font-bold text-sm text-eesa-text truncate">{p.teamName}</h5>
+                          <p className="text-[11px] text-eesa-textSecondary truncate">{p.department}</p>
+                        </div>
+                      </div>
+                      <div className="font-mono font-black text-base text-blue-600 shrink-0 ml-2">
+                        {p.score || 0} PTS
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -298,6 +325,17 @@ export default function PublicDisplay() {
                       <p className="text-xs text-eesa-textSecondary">
                         Player: {firstBuzzer.participantName}
                       </p>
+                      {firstBuzzer.selectedAnswer && (
+                        <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-100/80 border border-red-200 text-xs font-bold text-red-900">
+                          <span>Selected:</span>
+                          <span className="font-mono bg-red-600 text-white px-1.5 py-0.5 rounded text-[11px]">
+                            {firstBuzzer.selectedAnswer}
+                          </span>
+                          <span className="truncate max-w-[240px]">
+                            {firstBuzzer.selectedOptionText || `Option ${firstBuzzer.selectedAnswer}`}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -334,8 +372,13 @@ export default function PublicDisplay() {
                       <p className="text-sm font-semibold opacity-90 mt-0.5">
                         {lastResult.isCorrect
                           ? `+${lastResult.pointsAwarded} points awarded to ${lastResult.teamName}`
-                          : `${lastResult.teamName} incurred penalty.`}
+                          : `Wrong answer! ${lastResult.teamName} incurred penalty (-${lastResult.pointsDeducted || 0} pts).`}
                       </p>
+                      {lastResult.selectedAnswer && (
+                        <p className="text-xs opacity-75 mt-1">
+                          Player answered: Option {lastResult.selectedAnswer}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -384,41 +427,35 @@ export default function PublicDisplay() {
               )}
             </div>
 
-            {/* Side Leaderboard (1 Column) */}
-            <div className="lg:col-span-1 bg-white rounded-3xl p-5 border border-eesa-border shadow-sm">
-              <div className="flex items-center gap-2 pb-3 mb-3 border-b border-eesa-border">
-                <Trophy className="w-5 h-5 text-amber-500" />
-                <h3 className="font-bold text-base text-eesa-text">Top Contenders</h3>
-              </div>
+            {/* Side Tournament Status Panel (1 Column) */}
+            <div className="lg:col-span-1 bg-white rounded-3xl p-5 border border-eesa-border shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-2 pb-3 mb-3 border-b border-eesa-border">
+                  <Trophy className="w-5 h-5 text-amber-500" />
+                  <h3 className="font-bold text-base text-eesa-text">Live Tournament</h3>
+                </div>
 
-              <div className="space-y-2.5">
-                {gameState.leaderboard.slice(0, 5).map((p, idx) => (
-                  <div
-                    key={p._id || idx}
-                    className={`p-3 rounded-xl flex items-center justify-between border ${
-                      idx === 0
-                        ? 'bg-amber-50/60 border-amber-200 shadow-xs'
-                        : 'bg-slate-50 border-eesa-border'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="font-bold text-xs text-eesa-textSecondary font-mono w-4">
-                        #{idx + 1}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="font-bold text-xs text-eesa-text truncate max-w-[120px]">
-                          {p.teamName || p.name}
-                        </p>
-                        <p className="text-[10px] text-eesa-textSecondary truncate max-w-[120px]">
-                          {p.department}
-                        </p>
-                      </div>
-                    </div>
-                    <span className="font-mono font-black text-sm text-blue-600">
-                      {p.score || 0}
+                <div className="p-4 rounded-2xl bg-blue-50/60 border border-blue-200 text-center space-y-2.5 my-2">
+                  <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center mx-auto text-lg shadow-sm">
+                    🔒
+                  </div>
+                  <h4 className="font-bold text-sm text-eesa-text">Standings Hidden</h4>
+                  <p className="text-xs text-eesa-textSecondary leading-relaxed">
+                    Live team ranks are monitored privately on the Host Desk during the active quiz.
+                  </p>
+                  <div className="pt-1">
+                    <span className="text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white border border-blue-200 text-blue-700 inline-block shadow-2xs">
+                      Top 5 Revealed at End
                     </span>
                   </div>
-                ))}
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-eesa-border text-center">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-50 border border-slate-200 text-xs text-slate-700 font-semibold">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>{gameState.connectedParticipants || 0} Teams Competing</span>
+                </div>
               </div>
             </div>
           </div>

@@ -492,7 +492,7 @@ export default function EventWizardPage() {
                   </div>
 
                   {/* Correct Answer & Metadata */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-2 border-t border-slate-200">
                     <div>
                       <label className="block text-[10px] uppercase font-bold text-slate-600 mb-1">Correct Key</label>
                       <select
@@ -529,7 +529,7 @@ export default function EventWizardPage() {
                     </div>
 
                     <div>
-                      <label className="block text-[10px] uppercase font-bold text-slate-600 mb-1">Points</label>
+                      <label className="block text-[10px] uppercase font-bold text-slate-600 mb-1">Points (+)</label>
                       <input
                         type="number"
                         value={q.points}
@@ -538,7 +538,21 @@ export default function EventWizardPage() {
                           updated[idx].points = Number(e.target.value);
                           setQuestions(updated);
                         }}
-                        className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs text-blue-700 font-mono font-bold outline-none"
+                        className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs text-emerald-700 font-mono font-bold outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-slate-600 mb-1">Penalty (-)</label>
+                      <input
+                        type="number"
+                        value={q.negativePoints !== undefined ? q.negativePoints : 5}
+                        onChange={(e) => {
+                          const updated = [...questions];
+                          updated[idx].negativePoints = Number(e.target.value);
+                          setQuestions(updated);
+                        }}
+                        className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs text-red-600 font-mono font-bold outline-none"
                       />
                     </div>
 
@@ -587,6 +601,22 @@ export default function EventWizardPage() {
             </h2>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="sm:col-span-2 p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-800">Negative Marking Rule</h4>
+                  <p className="text-xs text-slate-500">Deduct penalty points if the participant gives a wrong answer on buzzer</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={scoring.negativeMarkingEnabled}
+                    onChange={(e) => setScoring({ ...scoring, negativeMarkingEnabled: e.target.checked })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
                   Default Correct Points
@@ -735,6 +765,12 @@ export default function EventWizardPage() {
               <div className="flex items-center justify-between text-sm">
                 <span className="font-medium text-slate-500">Scoring</span>
                 <span className="font-mono font-bold text-emerald-700">+{scoring.defaultPoints} / -{scoring.defaultNegativePoints}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-medium text-slate-500">Negative Marking</span>
+                <span className={`font-bold text-xs px-2 py-0.5 rounded ${scoring.negativeMarkingEnabled ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'}`}>
+                  {scoring.negativeMarkingEnabled ? 'Active (Penalty on wrong answer)' : 'Disabled'}
+                </span>
               </div>
             </div>
 

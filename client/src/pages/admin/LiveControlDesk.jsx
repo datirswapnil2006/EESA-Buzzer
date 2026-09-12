@@ -383,15 +383,15 @@ export default function LiveControlDesk() {
 
                 {/* FIRST BUZZER WINNER CARD & GRADING */}
                 {firstBuzzer ? (
-                  <div className="mt-4 p-5 rounded-xl bg-red-50/70 border-2 border-red-300 space-y-4 animate-fade-in">
+                  <div className="mt-4 p-5 rounded-2xl bg-slate-50 border-2 border-red-300 space-y-4 animate-fade-in shadow-sm">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-xl bg-red-600 flex items-center justify-center text-white text-xl font-bold shadow-sm">
+                        <div className="w-12 h-12 rounded-2xl bg-red-600 flex items-center justify-center text-white text-xl font-bold shadow-sm">
                           🔔
                         </div>
                         <div>
                           <span className="text-[10px] uppercase font-bold text-red-700 tracking-wider">
-                            First Buzzer Registered
+                            First Buzzer Winner
                           </span>
                           <h4 className="text-xl font-black text-eesa-text">
                             {firstBuzzer.teamName}
@@ -410,14 +410,71 @@ export default function LiveControlDesk() {
                       </div>
                     </div>
 
+                    {/* Selected Option & Correct Key Comparison */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-white border border-eesa-border">
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-slate-500 block">Student Answer</span>
+                        {firstBuzzer.selectedAnswer ? (
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className={`w-7 h-7 rounded-lg flex items-center justify-center font-mono font-black text-xs text-white ${
+                              firstBuzzer.isCorrect ? 'bg-emerald-600' : 'bg-red-600'
+                            }`}>
+                              {firstBuzzer.selectedAnswer}
+                            </span>
+                            <span className="text-xs font-semibold text-slate-800 truncate">
+                              {firstBuzzer.selectedOptionText || `Option ${firstBuzzer.selectedAnswer}`}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-xs font-medium text-amber-600 italic block mt-1">
+                            Waiting for student to select option...
+                          </span>
+                        )}
+                      </div>
+
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-slate-500 block">Official Correct Key</span>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-mono font-black text-xs">
+                            {gameState.currentQuestion?.correctAnswer || 'A'}
+                          </span>
+                          <span className="text-xs font-semibold text-emerald-800 truncate">
+                            {gameState.currentQuestion?.options?.find(o => String(o.id).toLowerCase() === String(gameState.currentQuestion?.correctAnswer).toLowerCase())?.text || 'Correct Option'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Auto-Verdict Badge */}
+                    {firstBuzzer.selectedAnswer && (
+                      <div className={`p-2.5 rounded-xl border flex items-center justify-between text-xs font-bold ${
+                        firstBuzzer.isCorrect
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                          : 'bg-red-50 border-red-300 text-red-900'
+                      }`}>
+                        <div className="flex items-center gap-2">
+                          {firstBuzzer.isCorrect ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-red-600 shrink-0" />
+                          )}
+                          <span>
+                            {firstBuzzer.isCorrect
+                              ? `Correct Option Verified! (+${gameState.currentQuestion?.points || 10} pts)`
+                              : `Wrong Option Selected! (-${gameState.event?.settings?.negativeMarkingEnabled !== false ? (gameState.currentQuestion?.negativePoints || gameState.event?.settings?.defaultNegativePoints || 5) : 0} penalty)`}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
                     {/* GRADING BUTTONS */}
-                    <div className="grid grid-cols-2 gap-3 pt-2 border-t border-red-200">
+                    <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-200">
                       <button
                         onClick={handleMarkCorrect}
                         className="py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm flex items-center justify-center gap-1.5 shadow-sm transition transform active:scale-95"
                       >
                         <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
-                        MARK CORRECT (+PTS)
+                        AWARD (+{gameState.currentQuestion?.points || 10} PTS)
                       </button>
 
                       <button
@@ -425,7 +482,7 @@ export default function LiveControlDesk() {
                         className="py-3 px-4 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm flex items-center justify-center gap-1.5 shadow-sm transition transform active:scale-95"
                       >
                         <XCircle className="w-4 h-4 stroke-[2.5]" />
-                        MARK WRONG (-PENALTY)
+                        PENALIZE (-{gameState.event?.settings?.negativeMarkingEnabled !== false ? (gameState.currentQuestion?.negativePoints || gameState.event?.settings?.defaultNegativePoints || 5) : 0} PTS)
                       </button>
                     </div>
                   </div>

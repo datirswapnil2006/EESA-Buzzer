@@ -10,7 +10,7 @@ const buzzerLocks = new Map(); // eventId -> { locked: boolean, winner: object, 
 
 const setupGameEngine = (io) => {
   // Helper to broadcast full state
-  const getHydratedState = async (eventId) => {
+  const getHydratedState = async (eventId, forAdmin = false) => {
     const event = await Event.findById(eventId);
     if (!event) return null;
 
@@ -33,9 +33,14 @@ const setupGameEngine = (io) => {
       ? await Question.findById(session.currentQuestionId)
       : questions[session.currentQuestionIndex];
 
-    const leaderboard = await Participant.find({ eventId })
+    const fullLeaderboard = await Participant.find({ eventId })
       .sort({ score: -1, buzzerWins: -1, name: 1 })
       .limit(20);
+
+    // Leaderboard is visible ONLY to admin while the test is active,
+    // and revealed to everyone once the quiz ends (state === 'COMPLETED')
+    const showLeaderboard = forAdmin || session.state === 'COMPLETED';
+    const leaderboard = showLeaderboard ? fullLeaderboard : [];
 
     const totalParticipants = await Participant.countDocuments({ eventId });
     const connectedParticipants = await Participant.countDocuments({ eventId, isConnected: true });
@@ -76,8 +81,8 @@ const setupGameEngine = (io) => {
             questionText: currentQuestion.questionText,
             questionType: currentQuestion.questionType,
             options: currentQuestion.options,
-            explanation: session.state === 'ANSWER_REVEAL' ? currentQuestion.explanation : '',
-            correctAnswer: session.state === 'ANSWER_REVEAL' ? currentQuestion.correctAnswer : null,
+            explanation: (forAdmin || session.state === 'ANSWER_REVEAL') ? currentQuestion.explanation : '',
+            correctAnswer: (forAdmin || session.state === 'ANSWER_REVEAL') ? currentQuestion.correctAnswer : null,
             imageUrl: currentQuestion.imageUrl,
             category: currentQuestion.category,
             difficulty: currentQuestion.difficulty,
@@ -92,6 +97,22 @@ const setupGameEngine = (io) => {
       totalParticipants,
       connectedParticipants,
     };
+  };
+
+  const broadcastState = async (eventId) => {
+    const publicState = await getHydratedState(eventId, false);
+    const adminState = await getHydratedState(eventId, true);
+    io.to(`event_${eventId}`).emit('event_state', publicState);
+    io.to(`event_${eventId}_admin`).emit('event_state', adminState);
+
+    // Admin desk always receives real-time leaderboard
+    if (adminState?.leaderboard) {
+      io.to(`event_${eventId}_admin`).emit('leaderboard_updated', adminState.leaderboard);
+    }
+    // Students and public display only receive leaderboard once the event concludes
+    if (adminState?.session?.state === 'COMPLETED') {
+      io.to(`event_${eventId}`).emit('leaderboard_updated', adminState.leaderboard);
+    }
   };
 
   io.on('connection', (socket) => {
@@ -109,6 +130,11 @@ const setupGameEngine = (io) => {
         socket.join(roomName);
         socket.eventId = event._id.toString();
         socket.role = role || 'student';
+
+        const isAdmin = socket.role === 'admin' || socket.role === 'host';
+        if (isAdmin) {
+          socket.join(`event_${event._id}_admin`);
+        }
 
         let participant = null;
         if (participantId) {
@@ -135,7 +161,7 @@ const setupGameEngine = (io) => {
         }
 
         // Send full authoritative initial state to the connecting socket
-        const state = await getHydratedState(event._id);
+        const state = await getHydratedState(event._id, isAdmin);
         socket.emit('event_state', { ...state, participant });
       } catch (err) {
         console.error('join_event error:', err);
@@ -148,7 +174,8 @@ const setupGameEngine = (io) => {
       try {
         const targetEventId = eventId || socket.eventId;
         if (!targetEventId) return;
-        const state = await getHydratedState(targetEventId);
+        const isAdmin = socket.role === 'admin' || socket.role === 'host';
+        const state = await getHydratedState(targetEventId, isAdmin);
         socket.emit('event_state', state);
       } catch (err) {
         console.error('request_state error:', err);
@@ -190,9 +217,9 @@ const setupGameEngine = (io) => {
 
         buzzerLocks.set(eventId, { locked: false, winner: null, startTime: null });
 
-        const state = await getHydratedState(eventId);
+        const state = await getHydratedState(eventId, true);
         io.to(`event_${eventId}`).emit('game_started', state);
-        io.to(`event_${eventId}`).emit('event_state', state);
+        await broadcastState(eventId);
       } catch (err) {
         console.error('start_game error:', err);
       }
@@ -224,16 +251,149 @@ const setupGameEngine = (io) => {
           buzzerStartTime: session.buzzerStartTime,
         });
 
-        const state = await getHydratedState(eventId);
-        io.to(`event_${eventId}`).emit('event_state', state);
+        await broadcastState(eventId);
       } catch (err) {
         console.error('start_buzzer error:', err);
       }
     });
 
-    // ATOMIC BUZZ ACTION (from Student)
-    socket.on('buzz', async () => {
+    // HELPER: APPLY CORRECT ANSWER
+    const applyCorrectAnswer = async (eventId, participantId, customPoints) => {
+      const session = await GameSession.findOne({ eventId });
+      const event = await Event.findById(eventId);
+      const targetParticipantId = participantId || session?.firstBuzzer?.participantId;
+      if (!targetParticipantId) return null;
+
+      const currentQuestion = session?.currentQuestionId
+        ? await Question.findById(session.currentQuestionId)
+        : null;
+
+      const basePoints = currentQuestion?.points !== undefined
+        ? currentQuestion.points
+        : (event?.settings?.defaultPoints || 10);
+      const buzzerBonus = session?.buzzerLocked ? (event?.settings?.buzzerBonus || 0) : 0;
+      const pointsToAdd = customPoints !== undefined ? Number(customPoints) : (basePoints + buzzerBonus);
+
+      const participant = await Participant.findById(targetParticipantId);
+      if (!participant) return null;
+
+      participant.score += pointsToAdd;
+      participant.correctCount += 1;
+      await participant.save();
+
+      await ScoreEvent.create({
+        eventId,
+        participantId: participant._id,
+        questionId: currentQuestion?._id,
+        roundId: session?.currentRoundId,
+        action: 'CORRECT_ANSWER',
+        pointsDelta: pointsToAdd,
+        resultingScore: participant.score,
+        selectedAnswer: session?.firstBuzzer?.selectedAnswer || '',
+        selectedOptionText: session?.firstBuzzer?.selectedOptionText || '',
+        correctAnswer: currentQuestion?.correctAnswer || '',
+        isCorrect: true,
+        responseTimeMs: session?.firstBuzzer?.responseTimeMs || 0,
+        note: `Correct Answer (+${pointsToAdd} pts)${session?.firstBuzzer?.selectedAnswer ? ` [Option ${session.firstBuzzer.selectedAnswer}]` : ''}`,
+      });
+
+      if (session) {
+        session.state = 'ANSWER_REVEAL';
+        if (session.firstBuzzer) {
+          session.firstBuzzer.isCorrect = true;
+        }
+        await session.save();
+      }
+
+      const resultPayload = {
+        isCorrect: true,
+        participantId: participant._id,
+        participantName: participant.name,
+        teamName: participant.teamName,
+        selectedAnswer: session?.firstBuzzer?.selectedAnswer || '',
+        selectedOptionText: session?.firstBuzzer?.selectedOptionText || '',
+        pointsAwarded: pointsToAdd,
+        correctAnswer: currentQuestion?.correctAnswer,
+        explanation: currentQuestion?.explanation,
+      };
+
+      io.to(`event_${eventId}`).emit('answer_result', resultPayload);
+      await broadcastState(eventId);
+      return resultPayload;
+    };
+
+    // HELPER: APPLY WRONG ANSWER
+    const applyWrongAnswer = async (eventId, participantId, customPenalty) => {
+      const session = await GameSession.findOne({ eventId });
+      const event = await Event.findById(eventId);
+      const targetParticipantId = participantId || session?.firstBuzzer?.participantId;
+      if (!targetParticipantId) return null;
+
+      const currentQuestion = session?.currentQuestionId
+        ? await Question.findById(session.currentQuestionId)
+        : null;
+
+      const isNegEnabled = event?.settings?.negativeMarkingEnabled !== false;
+      const configuredPenalty = currentQuestion?.negativePoints !== undefined
+        ? currentQuestion.negativePoints
+        : (event?.settings?.defaultNegativePoints || 5);
+
+      const negativePoints = customPenalty !== undefined
+        ? Number(customPenalty)
+        : (isNegEnabled ? configuredPenalty : 0);
+
+      const participant = await Participant.findById(targetParticipantId);
+      if (!participant) return null;
+
+      participant.score = Math.max(0, participant.score - negativePoints);
+      participant.wrongCount += 1;
+      await participant.save();
+
+      await ScoreEvent.create({
+        eventId,
+        participantId: participant._id,
+        questionId: currentQuestion?._id,
+        roundId: session?.currentRoundId,
+        action: 'WRONG_ANSWER',
+        pointsDelta: -negativePoints,
+        resultingScore: participant.score,
+        selectedAnswer: session?.firstBuzzer?.selectedAnswer || '',
+        selectedOptionText: session?.firstBuzzer?.selectedOptionText || '',
+        correctAnswer: currentQuestion?.correctAnswer || '',
+        isCorrect: false,
+        responseTimeMs: session?.firstBuzzer?.responseTimeMs || 0,
+        note: `Wrong Answer (-${negativePoints} pts)${session?.firstBuzzer?.selectedAnswer ? ` [Option ${session.firstBuzzer.selectedAnswer}]` : ''}`,
+      });
+
+      if (session) {
+        session.state = 'ANSWER_REVEAL';
+        if (session.firstBuzzer) {
+          session.firstBuzzer.isCorrect = false;
+        }
+        await session.save();
+      }
+
+      const resultPayload = {
+        isCorrect: false,
+        participantId: participant._id,
+        participantName: participant.name,
+        teamName: participant.teamName,
+        selectedAnswer: session?.firstBuzzer?.selectedAnswer || '',
+        selectedOptionText: session?.firstBuzzer?.selectedOptionText || '',
+        pointsDeducted: negativePoints,
+        correctAnswer: currentQuestion?.correctAnswer,
+        explanation: currentQuestion?.explanation,
+      };
+
+      io.to(`event_${eventId}`).emit('answer_result', resultPayload);
+      await broadcastState(eventId);
+      return resultPayload;
+    };
+
+    // ATOMIC BUZZ ACTION (from Student) - supports option answer selection
+    socket.on('buzz', async (payload = {}) => {
       try {
+        const answer = typeof payload === 'object' ? payload.answer : payload;
         const eventId = socket.eventId;
         const participantId = socket.participantId;
         if (!eventId || !participantId) {
@@ -262,10 +422,29 @@ const setupGameEngine = (io) => {
           return socket.emit('buzz_rejected', { reason: 'Participant not found' });
         }
 
+        const currentQuestion = session.currentQuestionId
+          ? await Question.findById(session.currentQuestionId)
+          : null;
+
+        let selectedAnswer = answer || '';
+        let selectedOptionText = '';
+        let isCorrect = null;
+
+        if (selectedAnswer && currentQuestion) {
+          const chosenOpt = currentQuestion.options?.find(
+            (o) => String(o.id).trim().toLowerCase() === String(selectedAnswer).trim().toLowerCase()
+          );
+          selectedOptionText = chosenOpt ? `${chosenOpt.id}: ${chosenOpt.text}` : String(selectedAnswer);
+          isCorrect = String(currentQuestion.correctAnswer).trim().toLowerCase() === String(selectedAnswer).trim().toLowerCase();
+        }
+
         const winnerData = {
           participantId: participant._id,
           participantName: participant.name,
           teamName: participant.teamName,
+          selectedAnswer,
+          selectedOptionText,
+          isCorrect,
           responseTimeMs,
           timestamp: new Date(),
         };
@@ -281,16 +460,63 @@ const setupGameEngine = (io) => {
         participant.buzzerWins += 1;
         await participant.save();
 
-        console.log(`[BUZZER WINNER] ${participant.teamName} (${participant.name}) in ${responseTimeMs}ms`);
+        console.log(`[BUZZER WINNER] ${participant.teamName} (${participant.name}) in ${responseTimeMs}ms with answer: "${selectedAnswer}" (isCorrect: ${isCorrect})`);
 
         // Instant broadcast to ALL clients
         io.to(`event_${eventId}`).emit('buzzer_locked', winnerData);
         io.to(`event_${eventId}`).emit('first_buzzer', winnerData);
 
-        const state = await getHydratedState(eventId);
-        io.to(`event_${eventId}`).emit('event_state', state);
+        await broadcastState(eventId);
       } catch (err) {
         console.error('buzz error:', err);
+      }
+    });
+
+    // SUBMIT OR CONFIRM BUZZER ANSWER (if buzz was pressed first before selecting option)
+    socket.on('submit_buzzer_answer', async ({ answer }) => {
+      try {
+        const eventId = socket.eventId;
+        const participantId = socket.participantId;
+        if (!eventId || !participantId || !answer) return;
+
+        const session = await GameSession.findOne({ eventId });
+        if (!session || !session.buzzerLocked || !session.firstBuzzer) return;
+
+        if (session.firstBuzzer.participantId?.toString() !== participantId.toString()) {
+          return socket.emit('answer_rejected', { reason: 'Only the buzzer winner can submit answer' });
+        }
+
+        const currentQuestion = session.currentQuestionId
+          ? await Question.findById(session.currentQuestionId)
+          : null;
+
+        const chosenOpt = currentQuestion?.options?.find(
+          (o) => String(o.id).trim().toLowerCase() === String(answer).trim().toLowerCase()
+        );
+        const selectedOptionText = chosenOpt ? `${chosenOpt.id}: ${chosenOpt.text}` : String(answer);
+        const isCorrect = currentQuestion
+          ? String(currentQuestion.correctAnswer).trim().toLowerCase() === String(answer).trim().toLowerCase()
+          : null;
+
+        session.firstBuzzer.selectedAnswer = answer;
+        session.firstBuzzer.selectedOptionText = selectedOptionText;
+        session.firstBuzzer.isCorrect = isCorrect;
+        session.updatedAt = new Date();
+        await session.save();
+
+        const lock = buzzerLocks.get(eventId);
+        if (lock && lock.winner) {
+          lock.winner.selectedAnswer = answer;
+          lock.winner.selectedOptionText = selectedOptionText;
+          lock.winner.isCorrect = isCorrect;
+        }
+
+        io.to(`event_${eventId}`).emit('buzzer_answer_updated', session.firstBuzzer);
+        io.to(`event_${eventId}`).emit('buzzer_locked', session.firstBuzzer);
+        io.to(`event_${eventId}`).emit('first_buzzer', session.firstBuzzer);
+        await broadcastState(eventId);
+      } catch (err) {
+        console.error('submit_buzzer_answer error:', err);
       }
     });
 
@@ -310,8 +536,7 @@ const setupGameEngine = (io) => {
         if (lock) lock.locked = true;
 
         io.to(`event_${eventId}`).emit('buzzer_locked', session.firstBuzzer || {});
-        const state = await getHydratedState(eventId);
-        io.to(`event_${eventId}`).emit('event_state', state);
+        await broadcastState(eventId);
       } catch (err) {
         console.error('lock_buzzer error:', err);
       }
@@ -321,58 +546,7 @@ const setupGameEngine = (io) => {
     socket.on('mark_correct', async ({ participantId, customPoints }) => {
       try {
         if (socket.role !== 'admin' && socket.role !== 'host') return;
-        const eventId = socket.eventId;
-        const session = await GameSession.findOne({ eventId });
-        const event = await Event.findById(eventId);
-
-        const targetParticipantId = participantId || session?.firstBuzzer?.participantId;
-        if (!targetParticipantId) return;
-
-        const currentQuestion = session?.currentQuestionId
-          ? await Question.findById(session.currentQuestionId)
-          : null;
-
-        const pointsToAdd = customPoints !== undefined
-          ? Number(customPoints)
-          : (currentQuestion?.points || event?.settings?.defaultPoints || 10) +
-            (session?.buzzerLocked ? (event?.settings?.buzzerBonus || 0) : 0);
-
-        const participant = await Participant.findById(targetParticipantId);
-        if (participant) {
-          participant.score += pointsToAdd;
-          participant.correctCount += 1;
-          await participant.save();
-
-          await ScoreEvent.create({
-            eventId,
-            participantId: participant._id,
-            questionId: currentQuestion?._id,
-            roundId: session?.currentRoundId,
-            action: 'CORRECT_ANSWER',
-            pointsDelta: pointsToAdd,
-            resultingScore: participant.score,
-            note: `Correct Answer (${pointsToAdd} pts)`,
-          });
-        }
-
-        if (session) {
-          session.state = 'ANSWER_REVEAL';
-          await session.save();
-        }
-
-        io.to(`event_${eventId}`).emit('answer_result', {
-          isCorrect: true,
-          participantName: participant?.name,
-          teamName: participant?.teamName,
-          pointsAwarded: pointsToAdd,
-          correctAnswer: currentQuestion?.correctAnswer,
-          explanation: currentQuestion?.explanation,
-        });
-
-        const state = await getHydratedState(eventId);
-        io.to(`event_${eventId}`).emit('score_updated', { leaderboard: state.leaderboard });
-        io.to(`event_${eventId}`).emit('leaderboard_updated', state.leaderboard);
-        io.to(`event_${eventId}`).emit('event_state', state);
+        await applyCorrectAnswer(socket.eventId, participantId, customPoints);
       } catch (err) {
         console.error('mark_correct error:', err);
       }
@@ -382,61 +556,26 @@ const setupGameEngine = (io) => {
     socket.on('mark_wrong', async ({ participantId, customPenalty }) => {
       try {
         if (socket.role !== 'admin' && socket.role !== 'host') return;
-        const eventId = socket.eventId;
-        const session = await GameSession.findOne({ eventId });
-        const event = await Event.findById(eventId);
-
-        const targetParticipantId = participantId || session?.firstBuzzer?.participantId;
-        if (!targetParticipantId) return;
-
-        const currentQuestion = session?.currentQuestionId
-          ? await Question.findById(session.currentQuestionId)
-          : null;
-
-        const negativePoints = customPenalty !== undefined
-          ? Number(customPenalty)
-          : (event?.settings?.negativeMarkingEnabled
-              ? (currentQuestion?.negativePoints || event?.settings?.defaultNegativePoints || 5)
-              : 0);
-
-        const participant = await Participant.findById(targetParticipantId);
-        if (participant) {
-          participant.score = Math.max(0, participant.score - negativePoints);
-          participant.wrongCount += 1;
-          await participant.save();
-
-          await ScoreEvent.create({
-            eventId,
-            participantId: participant._id,
-            questionId: currentQuestion?._id,
-            roundId: session?.currentRoundId,
-            action: 'WRONG_ANSWER',
-            pointsDelta: -negativePoints,
-            resultingScore: participant.score,
-            note: `Wrong Answer (-${negativePoints} pts)`,
-          });
-        }
-
-        if (session) {
-          session.state = 'ANSWER_REVEAL';
-          await session.save();
-        }
-
-        io.to(`event_${eventId}`).emit('answer_result', {
-          isCorrect: false,
-          participantName: participant?.name,
-          teamName: participant?.teamName,
-          pointsDeducted: negativePoints,
-          correctAnswer: currentQuestion?.correctAnswer,
-          explanation: currentQuestion?.explanation,
-        });
-
-        const state = await getHydratedState(eventId);
-        io.to(`event_${eventId}`).emit('score_updated', { leaderboard: state.leaderboard });
-        io.to(`event_${eventId}`).emit('leaderboard_updated', state.leaderboard);
-        io.to(`event_${eventId}`).emit('event_state', state);
+        await applyWrongAnswer(socket.eventId, participantId, customPenalty);
       } catch (err) {
         console.error('mark_wrong error:', err);
+      }
+    });
+
+    // AUTO-GRADE BUZZER
+    socket.on('auto_grade_buzzer', async () => {
+      try {
+        if (socket.role !== 'admin' && socket.role !== 'host') return;
+        const session = await GameSession.findOne({ eventId: socket.eventId });
+        if (!session?.firstBuzzer?.participantId) return;
+
+        if (session.firstBuzzer.isCorrect === true) {
+          await applyCorrectAnswer(socket.eventId, session.firstBuzzer.participantId);
+        } else if (session.firstBuzzer.isCorrect === false) {
+          await applyWrongAnswer(socket.eventId, session.firstBuzzer.participantId);
+        }
+      } catch (err) {
+        console.error('auto_grade_buzzer error:', err);
       }
     });
 
@@ -517,8 +656,7 @@ const setupGameEngine = (io) => {
           }
         }
 
-        const state = await getHydratedState(eventId);
-        io.to(`event_${eventId}`).emit('event_state', state);
+        await broadcastState(eventId);
       } catch (err) {
         console.error('next_question error:', err);
       }
@@ -535,9 +673,8 @@ const setupGameEngine = (io) => {
         session.state = 'PAUSED';
         await session.save();
 
-        const state = await getHydratedState(eventId);
         io.to(`event_${eventId}`).emit('game_paused');
-        io.to(`event_${eventId}`).emit('event_state', state);
+        await broadcastState(eventId);
       } catch (err) {
         console.error('pause_game error:', err);
       }
@@ -555,8 +692,7 @@ const setupGameEngine = (io) => {
         session.questionStartTime = new Date();
         await session.save();
 
-        const state = await getHydratedState(eventId);
-        io.to(`event_${eventId}`).emit('event_state', state);
+        await broadcastState(eventId);
       } catch (err) {
         console.error('resume_game error:', err);
       }
@@ -579,9 +715,9 @@ const setupGameEngine = (io) => {
           await event.save();
         }
 
-        const state = await getHydratedState(eventId);
+        const state = await getHydratedState(eventId, true);
         io.to(`event_${eventId}`).emit('game_ended', state);
-        io.to(`event_${eventId}`).emit('event_state', state);
+        await broadcastState(eventId);
       } catch (err) {
         console.error('end_game error:', err);
       }

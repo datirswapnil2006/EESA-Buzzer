@@ -232,7 +232,11 @@ router.get('/:id/results', async (req, res) => {
     }
 
     const participants = await Participant.find({ eventId: event._id }).sort({ score: -1, buzzerWins: -1 });
-    const scoreEvents = await ScoreEvent.find({ eventId: event._id }).sort({ timestamp: -1 });
+    const scoreEvents = await ScoreEvent.find({ eventId: event._id })
+      .populate('participantId', 'name teamName department participantId')
+      .populate('questionId', 'questionText options correctAnswer points negativePoints order')
+      .populate('roundId', 'title order')
+      .sort({ timestamp: -1 });
 
     const totalQuestions = await Question.countDocuments({ eventId: event._id });
     const totalRounds = await Round.countDocuments({ eventId: event._id });
@@ -253,7 +257,7 @@ router.get('/:id/results', async (req, res) => {
   }
 });
 
-// Export CSV
+// Export CSV (supports ?type=buzzers or default standings)
 router.get('/:id/export', async (req, res) => {
   try {
     const event = await Event.findById(req.params.id);
@@ -261,12 +265,45 @@ router.get('/:id/export', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Event not found' });
     }
 
-    const participants = await Participant.find({ eventId: event._id }).sort({ score: -1 });
+    const { type } = req.query;
+
+    if (type === 'buzzers') {
+      const scoreEvents = await ScoreEvent.find({ eventId: event._id })
+        .populate('participantId', 'name teamName department participantId')
+        .populate('questionId', 'questionText correctAnswer points negativePoints order')
+        .populate('roundId', 'title order')
+        .sort({ timestamp: 1 });
+
+      const fields = [
+        { label: 'Timestamp', value: (row) => new Date(row.timestamp).toLocaleString() },
+        { label: 'Round', value: (row) => row.roundId?.title || '' },
+        { label: 'Question #', value: (row) => row.questionId?.order || '' },
+        { label: 'Question Text', value: (row) => row.questionId?.questionText || '' },
+        { label: 'Team Name', value: (row) => row.participantId?.teamName || '' },
+        { label: 'Participant Name', value: (row) => row.participantId?.name || '' },
+        { label: 'Selected Option', value: 'selectedAnswer' },
+        { label: 'Selected Option Text', value: 'selectedOptionText' },
+        { label: 'Correct Answer', value: 'correctAnswer' },
+        { label: 'Verdict', value: (row) => row.isCorrect === true ? 'CORRECT' : row.isCorrect === false ? 'WRONG' : row.action },
+        { label: 'Points Delta', value: 'pointsDelta' },
+        { label: 'Resulting Score', value: 'resultingScore' },
+        { label: 'Response Time (ms)', value: 'responseTimeMs' },
+      ];
+
+      const json2csvParser = new Parser({ fields });
+      const csv = json2csvParser.parse(scoreEvents);
+
+      res.header('Content-Type', 'text/csv');
+      res.attachment(`${event.eventCode || 'eesa'}_buzzer_results.csv`);
+      return res.send(csv);
+    }
+
+    const participants = await Participant.find({ eventId: event._id }).sort({ score: -1, buzzerWins: -1 });
 
     const fields = [
       { label: 'Rank', value: (row, idx) => idx + 1 },
-      { label: 'Name', value: 'name' },
       { label: 'Team Name', value: 'teamName' },
+      { label: 'Student Name', value: 'name' },
       { label: 'Department', value: 'department' },
       { label: 'Participant ID', value: 'participantId' },
       { label: 'Final Score', value: 'score' },
@@ -279,7 +316,7 @@ router.get('/:id/export', async (req, res) => {
     const csv = json2csvParser.parse(participants);
 
     res.header('Content-Type', 'text/csv');
-    res.attachment(`${event.eventCode || 'eesa'}_results.csv`);
+    res.attachment(`${event.eventCode || 'eesa'}_standings.csv`);
     return res.send(csv);
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
